@@ -130,7 +130,6 @@ class MetricLearning(object):
                 self.Params["Wp" + str(j + dL)] = self.Model["Params"]["Wp" + str(j)]
                 self.Params["bp" + str(j + dL)] = self.Model["Params"]["bp" + str(j)]
 
-            self.fname = self.Model["fname"]
             self.AnchorPoints = self.Model["AnchorPoints"]
             self.active_forward = self.Model["active_forward"]
             self.active_backward = self.Model["active_backward"]

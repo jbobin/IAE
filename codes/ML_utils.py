@@ -6,8 +6,7 @@ Utility tools for the ML-based metric learning scheme
 
 import numpy as np
 import matplotlib.pyplot as plt
-import MetricLearning_JAX as mld
-import res_MetricLearning_JAX as mldr
+import IAE_JAX as mldr
 
 fsize = 16
 vcol = ['mediumseagreen', 'crimson', 'steelblue', 'darkmagenta', 'burlywood', 'khaki', 'lightblue', 'darkseagreen',
