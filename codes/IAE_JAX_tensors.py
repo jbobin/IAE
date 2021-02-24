@@ -469,7 +469,7 @@ class MetricLearning(object):
     # Projection onto the barycentric span
     ##############
 
-    def barycentric_span_projection(self, X, Amplitude=None, Lambda0=None, Amplitude0=None):
+    def barycentric_span_projection(self, X, Amplitude=None, Lambda0=None, Amplitude0=None,niter=None):
 
         """
         Project on the barycentric span.
@@ -516,7 +516,10 @@ class MetricLearning(object):
         opt_state = opt_init(Params)
         train_acc_old = 1e32
 
-        t = trange(self.niter, desc='Projection - loss = %g, loss rel. var. = %g - ' % (0., 0.), disable=not self.verb)
+        if niter is None:
+            niter = self.niter
+
+        t = trange(niter, desc='Projection - loss = %g, loss rel. var. = %g - ' % (0., 0.), disable=not self.verb)
 
         for epoch in t:
 
