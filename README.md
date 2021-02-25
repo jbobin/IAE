@@ -5,5 +5,5 @@ This is the first version of a learning-based interpolatory scheme. It basically
 It goes with a simple jupyter notebook, which illustrates the way it works on simple Gaussian-shaped 1D signals.
 
 ```math
-a^2+b^2=c^2
+{\bf b}(\{\lambda\}) = \mbox{argmin}_{\bf z} \sum_{a=1}^d \lambda_a \phi_{\theta}({\bf z},{\varphi}_a),
 ```
