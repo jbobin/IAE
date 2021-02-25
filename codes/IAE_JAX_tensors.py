@@ -63,6 +63,7 @@ class MetricLearning(object):
         self.Model = Model
         self.fname = fname
         self.AnchorPoints = AnchorPoints
+        self.num_anchor_points = None
         self.Params = {}
         self.PhiE = None
         self.NSize = NSize
@@ -104,7 +105,7 @@ class MetricLearning(object):
                 print("Hey, there's a problem, provide either AnchorPoints or Model !")
             else:
                 self.AnchorPoints = self.Model["AnchorPoints"]
-        self.dim = np.shape(self.AnchorPoints)[2]
+        self.dim = onp.shape(self.AnchorPoints)[2]
 
         for j in range(self.nlayers):
             W0 = onp.random.randn(self.NSize[j], self.NSize[j + 1], self.dim)
@@ -153,6 +154,7 @@ class MetricLearning(object):
             self.code_version = self.Model["code_version"]
 
         self.ResParams = self.res_factor * (2 ** (onp.arange(self.nlayers) / (self.nlayers - 1)) - 1)
+        self.num_anchor_points = onp.shape(self.AnchorPoints)[0]
         self.encode_anchor_points()
 
     def update_parameters(self, Params):
@@ -320,7 +322,7 @@ class MetricLearning(object):
     def interpolator(self, PhiX, PhiE):
 
         iPhiE = np.linalg.inv(
-            np.tensordot(PhiE, PhiE, axes=([1, 2], [1, 2])) + self.reg_inv * np.eye(np.shape(PhiE)[0]))
+            np.tensordot(PhiE, PhiE, axes=([1, 2], [1, 2])) + self.reg_inv * onp.eye(self.num_anchor_points))
         Lambda = np.einsum('ijk,ljk,lm', PhiX, PhiE, iPhiE)
         if self.simplex:
             Lambda = Lambda / (np.sum(Lambda, axis=1)[:, np.newaxis] + 1e-3)  # not really a projection on the simplex
@@ -385,9 +387,6 @@ class MetricLearning(object):
         out_val2 = []
         rel_acc = 0
 
-        if batch_size is None:
-            batch_size = onp.min([25, X.shape[0]])
-
         if batch_size is not None:
             batch_size = onp.minimum(batch_size, X.shape[0])
             num_batches = onp.floor(X.shape[0] / batch_size).astype('int')
@@ -431,7 +430,7 @@ class MetricLearning(object):
 
         return self.Params, out_curves
 
-    def fast_interpolation(self, X=None, Amplitude=None):
+    def fast_interpolation(self, X, Amplitude=None):
 
         """
         Quick forward-interpolation-backward estimation
@@ -486,7 +485,11 @@ class MetricLearning(object):
         if Amplitude is not None and not hasattr(Amplitude, "__len__"):
             Amplitude = onp.ones(len(X)) * Amplitude
 
-        Params = {"LambdaCore": Lambda0[:, :-1] / onp.maximum(onp.sum(Lambda0, axis=1)[:, onp.newaxis], 1e-3)}
+        Params = {}
+        if not self.simplex:
+            Params["Lambda"] = Lambda0
+        else:  # if simplex constraint, optimization is performed on first dimensions of barycentric weights
+            Params["Lambda"] = Lambda0[:, :-1]
         if Amplitude is None:
             Params["Amplitude"] = Amplitude0.copy()
 
@@ -494,8 +497,11 @@ class MetricLearning(object):
 
             # Define the barycenter
 
-            B = np.tensordot(np.hstack((params["LambdaCore"], 1 - np.sum(params["LambdaCore"], axis=1)[:, np.newaxis])),
-                             self.PhiE, axes=(1, 0))
+            if not self.simplex:
+                B = np.tensordot(params["Lambda"], self.PhiE, axes=(1, 0))
+            else:
+                B = np.tensordot(np.hstack((params["Lambda"], 1 - np.sum(params["Lambda"], axis=1)[:, np.newaxis])),
+                                 self.PhiE, axes=(1, 0))
 
             XRec = self.decoder(B)
 
@@ -537,11 +543,11 @@ class MetricLearning(object):
         if self.verb:
             print("Finished in %i it. - loss = %g, loss rel. var. = %g " % (epoch, train_acc, rel_var))
 
-        Params['Lambda'] = onp.hstack((Params["LambdaCore"], 1 - onp.sum(Params["LambdaCore"], axis=1)[:, onp.newaxis]))
+        if self.simplex:
+            Params['Lambda'] = onp.hstack((Params["Lambda"], 1 - onp.sum(Params["Lambda"], axis=1)[:, onp.newaxis]))
         if Amplitude is not None:
             Params['Amplitude'] = Amplitude
         Params['XRec'] = self.get_barycenter(Params['Lambda'], Params['Amplitude'])
-        del Params['LambdaCore']
 
         return Params
 
