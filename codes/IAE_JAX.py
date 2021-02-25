@@ -63,6 +63,7 @@ class MetricLearning(object):
         self.Model = Model
         self.fname = fname
         self.AnchorPoints = AnchorPoints
+        self.num_anchor_points = None
         self.Params = {}
         self.PhiE = None
         self.NSize = NSize
@@ -130,6 +131,7 @@ class MetricLearning(object):
                 self.Params["Wp" + str(j + dL)] = self.Model["Params"]["Wp" + str(j)]
                 self.Params["bp" + str(j + dL)] = self.Model["Params"]["bp" + str(j)]
 
+            self.fname = self.Model["fname"]
             self.AnchorPoints = self.Model["AnchorPoints"]
             self.active_forward = self.Model["active_forward"]
             self.active_backward = self.Model["active_backward"]
@@ -150,6 +152,7 @@ class MetricLearning(object):
             self.code_version = self.Model["code_version"]
 
         self.ResParams = self.res_factor * (2 ** (onp.arange(self.nlayers) / (self.nlayers - 1)) - 1)
+        self.num_anchor_points = onp.shape(self.AnchorPoints)[0]
         self.encode_anchor_points()
 
     def update_parameters(self, Params):
@@ -254,7 +257,6 @@ class MetricLearning(object):
         ResidualE = self.AnchorPoints
 
         for l in range(self.nlayers):
-
             PhiX = self.activation_function(np.dot(PhiX, W["Wt" + str(l)]) + W["bt" + str(l)], direction='forward')
             PhiX += self.ResParams[l] * ResidualX
 
@@ -280,10 +282,9 @@ class MetricLearning(object):
         ResidualR = B
 
         for l in range(self.nlayers):
-
             XRec = self.activation_function(np.dot(XRec, W["Wp" + str(l)]) + W["bp" + str(l)], direction='backward')
 
-            XRec += self.ResParams[-(l+1)] * ResidualR
+            XRec += self.ResParams[-(l + 1)] * ResidualR
 
             ResidualR = XRec
 
@@ -314,8 +315,8 @@ class MetricLearning(object):
 
     def interpolator(self, PhiX, PhiE):
 
-        Lambda = np.dot(PhiX, np.dot(PhiE.T,
-                                     np.linalg.inv(np.dot(PhiE, PhiE.T) + self.reg_inv * np.eye(np.shape(PhiE)[0]))))
+        Lambda = np.dot(PhiX, np.dot(PhiE.T, np.linalg.inv(
+            np.dot(PhiE, PhiE.T) + self.reg_inv * onp.eye(self.num_anchor_points))))
         if self.simplex:
             Lambda = Lambda / (np.sum(Lambda, axis=1)[:, np.newaxis] + 1e-3)  # not really a projection on the simplex
 
@@ -379,9 +380,6 @@ class MetricLearning(object):
         out_val2 = []
         rel_acc = 0
 
-        if batch_size is None:
-            batch_size = onp.min([25, X.shape[0]])
-
         if batch_size is not None:
             batch_size = onp.minimum(batch_size, X.shape[0])
             num_batches = onp.floor(X.shape[0] / batch_size).astype('int')
@@ -425,7 +423,7 @@ class MetricLearning(object):
 
         return self.Params, out_curves
 
-    def fast_interpolation(self, X=None, Amplitude=None):
+    def fast_interpolation(self, X, Amplitude=None):
 
         """
         Quick forward-interpolation-backward estimation
@@ -479,7 +477,11 @@ class MetricLearning(object):
         if Amplitude is not None and not hasattr(Amplitude, "__len__"):
             Amplitude = onp.ones(len(X)) * Amplitude
 
-        Params = {"LambdaCore": Lambda0[:, :-1] / onp.maximum(onp.sum(Lambda0, axis=1)[:, onp.newaxis], 1e-3)}
+        Params = {}
+        if not self.simplex:
+            Params["Lambda"] = Lambda0
+        else:  # if simplex constraint, optimization is performed on first dimensions of barycentric weights
+            Params["Lambda"] = Lambda0[:, :-1]
         if Amplitude is None:
             Params["Amplitude"] = Amplitude0.copy()
 
@@ -487,7 +489,10 @@ class MetricLearning(object):
 
             # Define the barycenter
 
-            B = np.hstack((params["LambdaCore"], 1 - np.sum(params["LambdaCore"], axis=1)[:, np.newaxis])) @ self.PhiE
+            if not self.simplex:
+                B = params["Lambda"] @ self.PhiE
+            else:
+                B = np.hstack((params["Lambda"], 1 - np.sum(params["Lambda"], axis=1)[:, np.newaxis])) @ self.PhiE
 
             XRec = self.decoder(B)
 
@@ -526,11 +531,11 @@ class MetricLearning(object):
         if self.verb:
             print("Finished in %i it. - loss = %g, loss rel. var. = %g " % (epoch, train_acc, rel_var))
 
-        Params['Lambda'] = onp.hstack((Params["LambdaCore"], 1 - onp.sum(Params["LambdaCore"], axis=1)[:, onp.newaxis]))
+        if self.simplex:
+            Params['Lambda'] = onp.hstack((Params["Lambda"], 1 - onp.sum(Params["Lambda"], axis=1)[:, onp.newaxis]))
         if Amplitude is not None:
             Params['Amplitude'] = Amplitude
         Params['XRec'] = self.get_barycenter(Params['Lambda'], Params['Amplitude'])
-        del Params['LambdaCore']
 
         return Params
 
