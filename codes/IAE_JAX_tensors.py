@@ -25,7 +25,7 @@ def load_model(fname):
 # Main code
 ############################################################
 
-class MetricLearning(object):
+class IAE(object):
     """
     Model - input IAE model, overrides other parameters if provided (except the number of layers)
     fname - filename for the IAE model
@@ -133,7 +133,7 @@ class MetricLearning(object):
                 self.Params["Wp" + str(j + dL)] = self.Model["Params"]["Wp" + str(j)]
                 self.Params["bp" + str(j + dL)] = self.Model["Params"]["bp" + str(j)]
 
-            self.fname = self.Model["fname"]
+            #self.fname = self.Model["fname"]
             self.AnchorPoints = self.Model["AnchorPoints"]
             self.active_forward = self.Model["active_forward"]
             self.active_backward = self.Model["active_backward"]
@@ -484,6 +484,10 @@ class MetricLearning(object):
                 Amplitude0 = onp.ones(len(X)) * Amplitude0
         if Amplitude is not None and not hasattr(Amplitude, "__len__"):
             Amplitude = onp.ones(len(X)) * Amplitude
+        if niter is None:
+            niter = self.niter
+        if step_size is None:
+            step_size = self.step_size
 
         Params = {}
         if not self.simplex:
@@ -512,7 +516,7 @@ class MetricLearning(object):
 
             return np.linalg.norm(XRec - X) ** 2
 
-        opt_init, opt_update, get_params = self.get_optimizer(optim="project")
+        opt_init, opt_update, get_params = self.get_optimizer(stage="project",step_size=step_size)
 
         @jit
         def update(i, OptState):
@@ -521,9 +525,6 @@ class MetricLearning(object):
 
         opt_state = opt_init(Params)
         train_acc_old = 1e32
-
-        if niter is None:
-            niter = self.niter
 
         t = trange(niter, desc='Projection - loss = %g, loss rel. var. = %g - ' % (0., 0.), disable=not self.verb)
 
