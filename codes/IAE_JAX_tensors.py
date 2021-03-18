@@ -430,23 +430,35 @@ class IAE(object):
 
         return self.Params, out_curves
 
-    def fast_interpolation(self, X, Amplitude=None):
+    def fast_interpolation(self, X, Amplitude=None, same_amplitude=False):
 
         """
         Quick forward-interpolation-backward estimation
         """
 
         if Amplitude is None:
-            Amplitude = onp.mean(onp.sum(onp.abs(X), axis=1), axis=1) / onp.mean(
-                onp.sum(onp.abs(self.AnchorPoints), axis=1))  # may be improved
             estimate_amplitude = True
+            if same_amplitude:
+                Amplitude = onp.mean(onp.sum(onp.abs(X), axis=1), axis=1) / \
+                            onp.mean(onp.sum(onp.abs(self.AnchorPoints), axis=1))  # may be improved
+            else:
+                Amplitude = onp.sum(onp.abs(X), axis=1) / \
+                            onp.mean(onp.sum(onp.abs(self.AnchorPoints), axis=1), axis=0)  # may be improved
         else:
             estimate_amplitude = False
-            if not hasattr(Amplitude, "__len__"):
+            if same_amplitude and not hasattr(Amplitude, "__len__"):
+                # if scalar provided, use same Amplitude for all inputs
                 Amplitude = onp.ones(len(X)) * Amplitude
+            elif not same_amplitude and len(np.shape(Amplitude)) == 1:
+                # if 1D-array provided, use same Amplitude for all inputs
+                Amplitude = onp.repeat(Amplitude[np.newaxis, :], len(X), axis=0)
 
         # Encode data
-        PhiX, _ = self.encoder(X / Amplitude[:, onp.newaxis, onp.newaxis])
+        if same_amplitude:
+            XNorm = X / Amplitude[:, onp.newaxis, onp.newaxis]
+        else:
+            XNorm = X / Amplitude[:, onp.newaxis, :]
+        PhiX, _ = self.encoder(XNorm)
 
         # Define the barycenter
         B, Lambda = self.interpolator(PhiX, self.PhiE)
@@ -455,9 +467,15 @@ class IAE(object):
         XRec = self.decoder(B)
 
         if estimate_amplitude:
-            Amplitude = onp.sum(XRec * X, axis=(1, 2)) / onp.maximum(onp.sum(XRec ** 2, axis=(1, 2)), 1e-3)
+            if same_amplitude:
+                Amplitude = onp.sum(XRec * X, axis=(1, 2)) / onp.maximum(onp.sum(XRec ** 2, axis=(1, 2)), 1e-3)
+            else:
+                Amplitude = onp.sum(XRec * X, axis=1) / onp.maximum(onp.sum(XRec ** 2, axis=1), 1e-3)
 
-        XRec = XRec * Amplitude[:, onp.newaxis, onp.newaxis]
+        if same_amplitude:
+            XRec = XRec * Amplitude[:, onp.newaxis, onp.newaxis]
+        else:
+            XRec = XRec * Amplitude[:, onp.newaxis, :]
 
         Output = {"PhiX": PhiX, "PhiE": self.PhiE, "Barycenter": B, "Lambda": Lambda, "XRec": XRec,
                   "Amplitude": Amplitude}
@@ -468,22 +486,34 @@ class IAE(object):
     # Projection onto the barycentric span
     ##############
 
-    def barycentric_span_projection(self, X, Amplitude=None, Lambda0=None, Amplitude0=None,niter=None):
+    def barycentric_span_projection(self, X, Amplitude=None, same_amplitude=False, Lambda0=None, Amplitude0=None,
+                                    niter=None, step_size=None):
 
         """
         Project on the barycentric span.
         """
 
         if Lambda0 is None or (Amplitude0 is None and Amplitude is None):
-            output = self.fast_interpolation(X=X, Amplitude=Amplitude)
+            output = self.fast_interpolation(X=X, Amplitude=Amplitude, same_amplitude=same_amplitude)
             if Lambda0 is None:
                 Lambda0 = output["Lambda"]
-            if Amplitude0 is None and Amplitude is None:
-                Amplitude0 = output["Amplitude"]
-            if not hasattr(Amplitude0, "__len__") and Amplitude is None:
-                Amplitude0 = onp.ones(len(X)) * Amplitude0
-        if Amplitude is not None and not hasattr(Amplitude, "__len__"):
-            Amplitude = onp.ones(len(X)) * Amplitude
+            if Amplitude is None:  # if Amplitude is None, estimate it jointly (and thus, initialize it)
+                if Amplitude0 is None:
+                    Amplitude0 = output["Amplitude"]
+                else:
+                    if same_amplitude and not hasattr(Amplitude0, "__len__"):
+                        # if scalar provided, use same Amplitude0 for all inputs
+                        Amplitude0 = onp.ones(len(X)) * Amplitude0
+                    elif not same_amplitude and len(onp.shape(Amplitude0)) == 1:
+                        # if 1D-array provided, use same Amplitude0 for all inputs
+                        Amplitude0 = onp.repeat(Amplitude0[onp.newaxis, :], len(X), axis=0)
+        if Amplitude is not None:
+            if same_amplitude and not hasattr(Amplitude, "__len__"):
+                # if scalar provided, use same Amplitude for all inputs
+                Amplitude = onp.ones(len(X)) * Amplitude
+            elif not same_amplitude and len(onp.shape(Amplitude)) == 1:
+                # if 1D-array provided, use same Amplitude0 for all inputs
+                Amplitude = onp.repeat(Amplitude[onp.newaxis, :], len(X), axis=0)
         if niter is None:
             niter = self.niter
         if step_size is None:
@@ -510,9 +540,15 @@ class IAE(object):
             XRec = self.decoder(B)
 
             if Amplitude is None:
-                XRec = params["Amplitude"][:, np.newaxis, np.newaxis] * XRec
+                if same_amplitude:
+                    XRec = params["Amplitude"][:, np.newaxis, np.newaxis] * XRec
+                else:
+                    XRec = params["Amplitude"][:, np.newaxis, :] * XRec
             else:
-                XRec = Amplitude[:, np.newaxis, np.newaxis] * XRec
+                if same_amplitude:
+                    XRec = Amplitude[:, np.newaxis, np.newaxis] * XRec
+                else:
+                    XRec = Amplitude[:, np.newaxis, :] * XRec
 
             return np.linalg.norm(XRec - X) ** 2
 
@@ -548,25 +584,28 @@ class IAE(object):
             Params['Lambda'] = onp.hstack((Params["Lambda"], 1 - onp.sum(Params["Lambda"], axis=1)[:, onp.newaxis]))
         if Amplitude is not None:
             Params['Amplitude'] = Amplitude
-        Params['XRec'] = self.get_barycenter(Params['Lambda'], Params['Amplitude'])
+        Params['XRec'] = self.get_barycenter(Params['Lambda'], Params['Amplitude'], same_amplitude=same_amplitude)
 
         return Params
 
         ####
 
-    def get_barycenter(self, Lambda, Amplitude=None):
+    def get_barycenter(self, Lambda, Amplitude=None, same_amplitude=False):
 
         """
         Get barycenter for a fixed Lambda
         """
 
         # Get barycenter
-        B = np.tensordot(Lambda, self.PhiE, axes=(1, 0))
+        B = onp.tensordot(Lambda, self.PhiE, axes=(1, 0))
 
         # Decode barycenter
         XRec = self.decoder(B)
 
         if Amplitude is not None:
-            XRec = Amplitude[:, onp.newaxis, onp.newaxis] * XRec
+            if same_amplitude:
+                XRec = Amplitude[:, onp.newaxis, onp.newaxis] * XRec
+            else:
+                XRec = Amplitude[:, onp.newaxis, :] * XRec
 
         return XRec
