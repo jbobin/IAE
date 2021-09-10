@@ -484,12 +484,13 @@ class IAE(object):
                     Z = -Z-np.exp(W["thd"])
                     Z2 = Z*(Z > 0)
                     Lambda = Z1 - Z2
+                if self.simplex:
+                    Lambda = Lambda / (np.sum(np.abs(Lambda), axis=1)[:, np.newaxis] + 1e-3)  # not really a projection on the simplex
+
         else:
             Lambda = np.dot(PhiX, np.dot(PhiET, np.linalg.inv(PhiE2 + self.reg_inv * onp.eye(self.num_anchor_points))))
-
-
-        if self.simplex:
-            Lambda = Lambda / (np.sum(Lambda, axis=1)[:, np.newaxis] + 1e-3)  # not really a projection on the simplex
+            if self.simplex:
+                Lambda = Lambda / (np.sum(Lambda, axis=1)[:, np.newaxis] + 1e-3)  # not really a projection on the simplex
 
         B = Lambda @ PhiE
 
@@ -681,7 +682,7 @@ class IAE(object):
         if not self.simplex:
             Params["Lambda"] = Lambda0
         else:  # if simplex constraint, optimization is performed on first dimensions of barycentric weights
-            Params["Lambda"] = Lambda0[:, :-1]
+            Params["Lambda"] = Lambda0#[:, :-1]
         if Amplitude is None:
             Params["Amplitude"] = Amplitude0.copy()
 
@@ -692,7 +693,8 @@ class IAE(object):
             if not self.simplex:
                 B = params["Lambda"] @ self.PhiE
             else:
-                B = np.hstack((params["Lambda"], 1 - np.sum(params["Lambda"], axis=1)[:, np.newaxis])) @ self.PhiE
+                Lambda = params["Lambda"] / (np.sum(np.abs(params["Lambda"] ), axis=1)[:, np.newaxis] + 1e-3)
+                B = Lambda @ self.PhiE
 
             XRec = self.decoder(B)
 
@@ -734,8 +736,8 @@ class IAE(object):
         if self.verb:
             print("Finished in %i it. - loss = %g, loss rel. var. = %g " % (epoch, train_acc, rel_acc))
 
-        if self.simplex:
-            Params['Lambda'] = onp.hstack((Params["Lambda"], 1 - onp.sum(Params["Lambda"], axis=1)[:, onp.newaxis]))
+        #if self.simplex:
+        #      Params['Lambda'] = onp.hstack((Params["Lambda"], 1 - onp.sum(Params["Lambda"], axis=1)[:, onp.newaxis]))
         if Amplitude is not None:
             Params['Amplitude'] = Amplitude
         Params['XRec'] = self.get_barycenter(Params['Lambda'], Params['Amplitude'])
