@@ -59,8 +59,8 @@ class IAE(object):
     def __init__(self, Model=None, fname='IAE_model', AnchorPoints=None, NSize=None, active_forward='lRelu',
                  active_backward='lRelu', res_factor=0.1, reg_parameter=1000., cost_weight=None, reg_inv=1e-9,
                  simplex=False, nneg_weights=False, nneg_output=False, noise_level=None, cost_type=0, optim_learn=0,
-                 optim_proj=3,sparse_code=False,niter_sparse=10, step_size=1e-2, niter=5000, eps_cvg=1e-9, verb=False, enable_train_bn=True, dropout_rate=None,reg_parameter_schedule=0,learning_rate_schedule=0,noise_level_schedule=0,
-                 code_version="version_2_sept_8th_2021"):
+                 optim_proj=3,init_weights=1,sparse_code=False,niter_sparse=10, step_size=1e-2, niter=5000, eps_cvg=1e-9, verb=False, enable_train_bn=True, dropout_rate=None,reg_parameter_schedule=0,learning_rate_schedule=0,noise_level_schedule=0,
+                 code_version="version_2_nov_18th_2021"):
         """
         Initialization
         """
@@ -101,6 +101,7 @@ class IAE(object):
         self.reg_parameter_schedule = reg_parameter_schedule
         self.sparse_code = sparse_code
         self.niter_sparse = niter_sparse
+        self.init_weights = init_weights
 
         self.init_parameters()
 
@@ -152,8 +153,17 @@ class IAE(object):
         self.num_anchor_points = self.AnchorPoints.shape[0]
 
         for j in range(self.nlayers):
-            W0 = onp.random.randn(self.NSize[j], self.NSize[j + 1])
-            self.Params["Wt" + str(j)] = W0 / onp.linalg.norm(W0)
+            if self.init_weights==1:
+                W0 = onp.random.randn(self.NSize[j], self.NSize[j + 1])
+                W0 = W0 / onp.linalg.norm(W0)
+            elif self.init_weights==2:
+                W0 = 1./self.NSize[j]*onp.random.randn(self.NSize[j], self.NSize[j + 1])
+            elif self.init_weights==3:
+                W0 = onp.random.rand(self.NSize[j], self.NSize[j + 1])
+                W0 = W0 / onp.linalg.norm(W0)
+            elif self.init_weights==4:
+                W0 = 1./self.NSize[j]*onp.random.rand(self.NSize[j], self.NSize[j + 1])
+            self.Params["Wt" + str(j)] = W0
             self.Params["bt" + str(j)] = onp.zeros(self.NSize[j + 1])
             self.bn_param["mean_bn_" + str(j)] = np.zeros((1,))
             self.bn_param["std_bn_" + str(j)] = np.ones((1,))
@@ -161,12 +171,24 @@ class IAE(object):
             self.Params["std" + str(j)] = np.ones((1,))
 
         for j in range(self.nlayers):
-            W0 = onp.random.randn(self.NSize[-j - 1], self.NSize[-j - 2])
+            if self.init_weights==1:
+                W0 = onp.random.randn(self.NSize[-j - 1], self.NSize[-j - 2])
+                W0 = W0 / onp.linalg.norm(W0)
+            elif self.init_weights==2:
+                W0 = 1./self.NSize[j]*onp.random.randn(self.NSize[-j - 1], self.NSize[-j - 2])
+            elif self.init_weights==3:
+                W0 = onp.random.rand(self.NSize[-j - 1], self.NSize[-j - 2])
+                W0 = W0 / onp.linalg.norm(W0)
+            elif self.init_weights==4:
+                W0 = 1./self.NSize[j]*onp.random.rand(self.NSize[-j - 1], self.NSize[-j - 2])
             self.Params["Wp" + str(j)] = W0 / onp.linalg.norm(W0)
             self.Params["bp" + str(j)] = onp.zeros(self.NSize[-j - 2], )
 
         if self.sparse_code:
-            self.Params["thd"] =  -3*np.ones((self.num_anchor_points ,))
+            self.Params["thd"] =  -2*np.ones((self.num_anchor_points ,))
+            for i in range(self.niter_sparse):
+
+                self.Params["step_size_"+onp.str(i)] =  np.zeros((1 ,))
 
         # THE MODEL IS GIVEN
         if self.Model is not None:
@@ -189,9 +211,7 @@ class IAE(object):
                 self.Params["Wp" + str(j + dL)] = self.Model["Params"]["Wp" + str(j)]
                 self.Params["bp" + str(j + dL)] = self.Model["Params"]["bp" + str(j)]
 
-            self.sparse_code = self.Model["sparse_code"]
-            if self.sparse_code:
-                self.Params["thd"] =   self.Model["Params"]["thd"]
+
 
             self.fname = self.Model["fname"]
             self.AnchorPoints = self.Model["AnchorPoints"]
@@ -214,6 +234,16 @@ class IAE(object):
             self.code_version = self.Model["code_version"]
             self.enable_train_bn = self.Model["enable_train_bn"]
             self.sparse_code = self.Model["sparse_code"]
+            self.niter_sparse = self.Model["niter_sparse"]
+            self.sparse_code = self.Model["sparse_code"]
+
+            if self.sparse_code:
+                self.Params["thd"] =   self.Model["Params"]["thd"]
+                for i in range(self.niter_sparse):
+                    self.Params["step_size_"+onp.str(i)] =  self.Model["Params"]["step_size_"+onp.str(i)]
+                     # May not be possible if we restart from a different dimensionality
+                    #self.Params["step_size"] =   self.Model["Params"]["step_size"]
+
 
         self.ResParams = self.res_factor * (2 ** (onp.arange(self.nlayers) / self.nlayers) - 1)
         self.num_anchor_points = onp.shape(self.AnchorPoints)[0]
@@ -233,7 +263,12 @@ class IAE(object):
             self.Params["std" + str(j)] = Params["std" + str(j)]
 
         if self.sparse_code:
+
+            #self.Params["step_size"] = Params["step_size"]
             self.Params["thd"] = Params["thd"]
+            for i in range(self.niter_sparse):
+                self.Params["step_size_"+onp.str(i)] = Params["step_size_"+onp.str(i)]
+
 
     def learnt_params_init(self):
         """
@@ -251,7 +286,12 @@ class IAE(object):
             Params["std" + str(j)] = self.Params["std" + str(j)]
 
         if self.sparse_code:
+
+            #Params["step_size"] = self.Params["step_size"]
             Params["thd"] = self.Params["thd"]
+            for i in range(self.niter_sparse):
+                Params["step_size_"+onp.str(i)] = self.Params["step_size_"+onp.str(i)]
+
 
         return Params
 
@@ -321,7 +361,8 @@ class IAE(object):
                  "verb": self.verb,
                  "code_version": self.code_version,
                  "enable_train_bn":self.enable_train_bn,
-                 "sparse_code":self.sparse_code}
+                 "sparse_code":self.sparse_code,
+                 "niter_sparse":self.niter_sparse}
         outfile = open(self.fname + '.pkl', 'wb')
         pickle.dump(Model, outfile)
         outfile.close()
@@ -386,13 +427,15 @@ class IAE(object):
             if self.dropout_rate is not None:   # Only on phiX???
                 PhiX = self.dropout_layer(PhiX,epoch)
 
-            PhiX,mg,sg = self.batch_normalization(PhiX,epoch,W["mu" + str(l)],W["std" + str(l)],apply_only=True) # Rescaling
+            if self.enable_train_bn:
+                PhiX,mg,sg = self.batch_normalization(PhiX,epoch,W["mu" + str(l)],W["std" + str(l)],apply_only=True) # Rescaling
 
             PhiX = self.activation_function(np.dot(PhiX, W["Wt" + str(l)]) + W["bt" + str(l)], direction='forward')
             PhiX += self.ResParams[l] * ResidualX
 
             #PhiE,mg,sg = self.batch_normalization(PhiE,epoch,self.bn_param["mean_bn_" + str(l)],self.bn_param["std_bn_" + str(l)],apply_only=True)
-            PhiE,mg,sg = self.batch_normalization(PhiE,epoch,W["mu" + str(l)],W["std" + str(l)],apply_only=True) # Rescaling
+            if self.enable_train_bn:
+                PhiE,mg,sg = self.batch_normalization(PhiE,epoch,W["mu" + str(l)],W["std" + str(l)],apply_only=True) # Rescaling
             PhiE = self.activation_function(np.dot(PhiE, W["Wt" + str(l)]) + W["bt" + str(l)], direction='forward')
             PhiE += self.ResParams[l] * ResidualE
 
@@ -468,24 +511,22 @@ class IAE(object):
 
         if self.sparse_code:
             # ISTA-based (10 iterations)
-            #Z = np.dot(PhiX, np.dot(PhiET, np.linalg.inv(PhiE2 + self.reg_inv * onp.eye(self.num_anchor_points))))
+            # #Z = np.dot(PhiX, np.dot(PhiET, np.linalg.inv(PhiE2 + self.reg_inv * onp.eye(self.num_anchor_points))))
             Z = np.dot(np.dot(PhiX,PhiET),np.diag(1./np.diag(PhiE2)))
-            for r in range(self.niter_sparse):
-                Z = Z - np.dot(np.dot(Z,PhiE)-PhiX,np.transpose(PhiE))/np.linalg.norm(PhiE2) # Pas forcément top, au minimum faire un FISTA
-                if W is None:
-                    Z = Z-np.exp(self.Params["thd"])
-                    Z1 = Z*(Z > 0)
-                    Z = -Z-np.exp(self.Params["thd"])
-                    Z2 = Z*(Z > 0)
-                    Lambda = Z1 - Z2
-                else:
-                    Z = Z-np.exp(W["thd"])
-                    Z1 = Z*(Z > 0)
-                    Z = -Z-np.exp(W["thd"])
-                    Z2 = Z*(Z > 0)
-                    Lambda = Z1 - Z2
-                if self.simplex:
-                    Lambda = Lambda / (np.sum(np.abs(Lambda), axis=1)[:, np.newaxis] + 1e-3)  # not really a projection on the simplex
+            if W is None:
+                for r in range(self.niter_sparse):
+                    Z = Z - np.exp(self.Params["step_size_"+onp.str(r)])*np.dot(np.dot(Z,PhiE)-PhiX,np.transpose(PhiE))/np.linalg.norm(PhiE2) # Pas forcément top, au minimum faire un FISTA
+                Z1 = Z-np.exp(self.Params["thd"])
+                Z2  = -Z-np.exp(self.Params["thd"])
+                Lambda = Z1*(Z1 > 0) - Z2*(Z2>0)
+            else:
+                for r in range(self.niter_sparse):
+                    Z = Z - np.exp(W["step_size_"+onp.str(r)])*np.dot(np.dot(Z,PhiE)-PhiX,np.transpose(PhiE))/np.linalg.norm(PhiE2) # Pas forcément top, au minimum faire un FISTA
+                Z1 = Z-np.exp(W["thd"])
+                Z2  = -Z-np.exp(W["thd"])
+                Lambda = Z1*(Z1 > 0) - Z2*(Z2>0)
+            if self.simplex:
+                Lambda = Lambda / (np.sum(np.abs(Lambda), axis=1)[:, np.newaxis] + 1e-3)  # not really a projection on the simplex
 
         else:
             Lambda = np.dot(PhiX, np.dot(PhiET, np.linalg.inv(PhiE2 + self.reg_inv * onp.eye(self.num_anchor_points))))
