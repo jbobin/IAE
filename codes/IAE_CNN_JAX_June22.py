@@ -265,7 +265,7 @@ class IAE(object):
         ## -- Initialize the weights
         ## ENCODER
 
-        def create_block(filter_size,nfilters,stride,padding="SAME",transpose=False,batchnorm=True,ndim=None): ## TO BE CLEANED
+        def create_block(nfilters,filter_size,stride,padding="SAME",transpose=False,batchnorm=True,ndim=None): ## TO BE CLEANED
             if transpose:
                 if batchnorm:
                     return stax.serial(stax.GeneralConvTranspose(('NHC', 'HIO', 'NHC'),nfilters,  (filter_size,), strides=(1,),  padding="SAME"),stax.BatchNorm(),stax.Elu)
@@ -287,32 +287,35 @@ class IAE(object):
 
         encode_arch = []
         for j in range(self.nlayers):
-            f = create_block(self.NSize[j,0],self.NSize[j,2],self.NSize[j,1],"SAME")
+            f = create_block(self.NSize[j,0],self.NSize[j,1],self.NSize[j,2],"SAME")
             encode_arch.append(f)
 
         # DECODER ARCHITECTURE
 
+        # create_block : 1,0,2
+        # GCT : 0,1,2
+
         decode_arch = []
         j=0
-        decode_arch.append(stax.serial(stax.GeneralConvTranspose(('NHC', 'HIO', 'NHC'),self.NSize[self.nlayers-j-2,2],  (self.NSize[self.nlayers-j-1,0],), strides=(1,), padding="SAME"),stax.Elu))
+        decode_arch.append(stax.serial(stax.GeneralConvTranspose(('NHC', 'HIO', 'NHC'),self.NSize[self.nlayers-j-2,0],  (self.NSize[self.nlayers-j-1,1],), strides=(1,), padding="SAME"),stax.Elu))
 
         for j in range(1,self.nlayers-1):
-            f = create_block(self.NSize[self.nlayers-j-1,0],self.NSize[self.nlayers-j-2,2],1,"SAME",transpose=True)
+            f = create_block(self.NSize[self.nlayers-j-1,0],self.NSize[self.nlayers-j-2,1],1,"SAME",transpose=True)
             decode_arch.append(f)
 
         j = self.nlayers-1
-        decode_arch.append(stax.serial(stax.GeneralConvTranspose(('NHC', 'HIO', 'NHC'),self.input_dim[1],  (self.NSize[self.nlayers-j-1,0],), strides=(1,), padding="SAME"),stax.Elu))
+        decode_arch.append(stax.serial(stax.GeneralConvTranspose(('NHC', 'HIO', 'NHC'),self.input_dim[1],  (self.NSize[self.nlayers-j-1,1],), strides=(1,), padding="SAME"),stax.Elu))
 
         # LATERAL CONNECTIONS ARCHITECTURE
 
         encode_lat_arch=[]
         for j in range(1,self.nlayers):
-            f = create_block(self.NSize[j,0],self.NSize[j,2],self.NSize[j,1],"SAME")
+            f = create_block(self.NSize[j,0],self.NSize[j,1],self.NSize[j,2],"SAME")
             encode_lat_arch.append(f)
 
         decode_lat_arch=[]
         for j in range(self.nlayers-1):
-            f = create_block(self.NSize[self.nlayers-j-1,0],self.NSize[self.nlayers-j-2,2],self.NSize[self.nlayers-j-1,1],"SAME",transpose=True)
+            f = create_block(self.NSize[self.nlayers-j-1,0],self.NSize[self.nlayers-j-2,1],self.NSize[self.nlayers-j-1,2],"SAME",transpose=True)
             decode_lat_arch.append(f)
 
         self.encode_arch = encode_arch
