@@ -734,8 +734,8 @@ class IAE(object):
             if not self.simplex:
                 B = params["Lambda"] @ self.PhiE
             else:
-                Lambda = params["Lambda"] / (np.sum(np.abs(params["Lambda"] ), axis=1)[:, np.newaxis] + 1e-3)
-                B = Lambda @ self.PhiE
+                params["Lambda"] = params["Lambda"] / (np.sum(params["Lambda"], axis=1)[:, np.newaxis] + 1e-3)
+                B = params["Lambda"] @ self.PhiE
 
             XRec = self.decoder(B)
 
