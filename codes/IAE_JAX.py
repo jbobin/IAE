@@ -5,7 +5,7 @@ Metric Learning
 import pickle
 from jax import grad, jit
 import jax.numpy as np
-from jax.experimental.optimizers import adam, momentum, sgd, nesterov, adagrad, rmsprop
+from jax.example_libraries.optimizers import adam, momentum, sgd, nesterov, adagrad, rmsprop
 import numpy as onp
 from tqdm import trange
 
@@ -315,9 +315,16 @@ class IAE(object):
 
     def interpolator(self, PhiX, PhiE):
 
-        Lambda = np.dot(PhiX, np.dot(PhiE.T, np.linalg.inv(
-            np.dot(PhiE, PhiE.T) + self.reg_inv * onp.eye(self.num_anchor_points))))
+        PhiE2 = np.einsum('ij,lj -> il',PhiE, PhiE)
+        
         if self.simplex:
+            iPhiE = np.linalg.inv(PhiE2 + self.reg_inv * onp.eye(self.num_anchor_points))
+            Lambda = np.einsum('ij,lj,lm', PhiX, PhiE, iPhiE)
+            ones = np.ones_like(Lambda)
+            mu = (1 - np.sum(Lambda,1))/np.sum(iPhiE)
+            Lambda = Lambda +  np.einsum('ij,i -> ij',np.einsum('ij,jk -> ik', ones, iPhiE),mu)
+        else:
+            Lambda = np.dot(PhiX, np.dot(PhiE.T, np.linalg.inv(np.dot(PhiE, PhiE.T) + self.reg_inv * onp.eye(self.num_anchor_points))))
             Lambda = Lambda / (np.sum(Lambda, axis=1)[:, np.newaxis] + 1e-3)  # not really a projection on the simplex
 
         B = Lambda @ PhiE
