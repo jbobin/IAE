@@ -5,7 +5,7 @@ Metric Learning
 import pickle
 from jax import grad, jit
 import jax.numpy as np
-from jax.experimental.optimizers import adam, momentum, sgd, nesterov, adagrad, rmsprop
+from jax.example_libraries.optimizers import adam, momentum, sgd, nesterov, adagrad, rmsprop
 import numpy as onp
 from tqdm import trange
 
